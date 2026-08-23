@@ -58,12 +58,21 @@ async def say_hello(ctx: inngest.Context) -> str:
 @inngest_client.create_function(
     fn_id="make-report",
     trigger=inngest.TriggerEvent(event="report/requested"),
+    retries=2,
 )
 async def make_report(ctx: inngest.Context) -> dict[str, Any]:
     report_id = str(ctx.event.data["id"])
     topic = str(ctx.event.data["topic"])
+    with reports_lock:
+        existing = reports.get(report_id)
+        if existing is None:
+            return {"id": report_id, "status": "missing"}
+        if existing.get("status") == "done":
+            return dict(existing)
     await ctx.step.sleep("do-the-slow-work", "8s")
     def build_report() -> dict[str, Any]:
+        if topic.lower() == "fail":
+            raise RuntimeError("The report oven is broken!")
         result = {
             "title": f"Report about {topic}",
             "summary": f"Background report generated for topic: {topic}.",
@@ -75,4 +84,4 @@ async def make_report(ctx: inngest.Context) -> dict[str, Any]:
     result = await ctx.step.run("build-report", build_report)
     return {"id": report_id, "status": "done", "result": result}
 
-serve(app, inngest_client, [say_hello, make_report])
+serve(app, ingest_client, [say_hello, make_report])
